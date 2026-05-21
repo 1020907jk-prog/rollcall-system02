@@ -43,7 +43,7 @@
         <div class="text-center space-y-1">
             <h1 class="text-3xl font-black bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent tracking-wide">🏢 CORP 出勤管理系統</h1>
             <p class="text-xs text-indigo-300 font-medium bg-indigo-500/10 border border-indigo-500/20 inline-block px-3 py-1 rounded-full backdrop-blur-md">
-                ⚡ 即時隱藏模式 ｜ 📊 支援手動送出存檔
+                ⚡ 即時分類模式 ｜ 📊 支援手動送出存檔
             </p>
         </div>
 
@@ -68,27 +68,28 @@
             </button>
         </div>
 
-        <div class="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/20 rounded-2xl p-4 text-center">
-            <h3 class="text-amber-400 font-bold text-xs uppercase tracking-wider mb-1">🎲 幸運抽獎 / 今日任務指派</h3>
-            <div id="luckyWinner" class="text-2xl font-black text-amber-300 my-2 h-8 drop-shadow-[0_2px_8px_rgba(251,191,36,0.3)]">？</div>
-            <button onclick="drawLuckyStudent()" class="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black px-5 py-2 rounded-lg transition shadow-md">
-                從「已到員工」隨機抽一位
-            </button>
+        <hr class="border-slate-800">
+
+        <div>
+            <div class="flex justify-between items-center mb-3">
+                <div>
+                    <h2 class="text-base font-bold text-slate-200 inline-block">⏳ 未簽到人員 (<span id="studentCount" class="text-indigo-400">0</span>)</h2>
+                    <span id="todayLabel" class="text-xs text-slate-500 ml-2 font-mono"></span>
+                </div>
+                <div class="flex gap-4 text-xs">
+                    <button onclick="resetRollCall()" class="text-slate-400 hover:text-slate-200 transition">今日重置</button>
+                    <button onclick="clearAll()" class="text-rose-400 hover:text-rose-300 font-medium transition">清空員工</button>
+                </div>
+            </div>
+            <div id="studentList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                </div>
         </div>
 
-        <div class="flex justify-between items-center border-t border-slate-800 pt-4">
-            <div>
-                <h2 class="text-base font-bold text-slate-200 inline-block">未簽到人員 (<span id="studentCount" class="text-indigo-400">0</span>)</h2>
-                <span id="todayLabel" class="text-xs text-slate-500 ml-2 font-mono"></span>
-            </div>
-            <div class="flex gap-4 text-xs">
-                <button onclick="resetRollCall()" class="text-slate-400 hover:text-slate-200 transition">今日重置</button>
-                <button onclick="clearAll()" class="text-rose-400 hover:text-rose-300 font-medium transition">清空員工</button>
-            </div>
+        <div class="border-t border-slate-800/60 pt-4">
+            <h2 class="text-base font-bold text-emerald-400 mb-3">✅ 已簽到人員 (<span id="doneCount" class="text-slate-400">0</span>)</h2>
+            <div id="doneList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                </div>
         </div>
-
-        <div id="studentList" class="space-y-2 max-h-60 overflow-y-auto pr-1">
-            </div>
 
         <div class="bg-slate-950/50 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div class="flex gap-8 text-center w-full sm:w-auto justify-around sm:justify-start">
@@ -108,10 +109,10 @@
 
         <div class="border-t border-slate-800 pt-4">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="text-base font-bold text-slate-200">📜 歷史簽到日誌 <span class="text-xs font-normal text-slate-500">(點擊行項目查看名單)</span></h2>
+                <h2 class="text-base font-bold text-slate-200">📜 歷史出勤日誌 <span class="text-xs font-normal text-slate-500">(點擊行項目查看名單)</span></h2>
                 <button onclick="clearHistory()" class="text-xs text-slate-500 hover:text-rose-400 transition">清空日誌</button>
             </div>
-            <div id="historyList" class="space-y-2 max-h-40 overflow-y-auto pr-1">
+            <div id="historyList" class="space-y-2 max-h-36 overflow-y-auto pr-1">
                 </div>
         </div>
 
@@ -139,51 +140,77 @@
             document.getElementById('todayLabel').textContent = `📅 TODAY：${todayStr}`;
         }
 
-        // 2. 核心功能：簽到後直接隱藏
+        // 2. 核心功能：雙列表渲染（未簽到與已簽到分流）
         function renderStudents() {
             const listEl = document.getElementById('studentList');
+            const doneEl = document.getElementById('doneList');
             const countEl = document.getElementById('studentCount');
-            if (!listEl) return;
+            const doneCountEl = document.getElementById('doneCount');
+            
+            if (!listEl || !doneEl) return;
             
             listEl.innerHTML = '';
+            doneEl.innerHTML = '';
             
+            // 篩選與計算人數
             const remainingStudents = students.filter(s => s.status === 'pending');
+            const finishedStudents = students.filter(s => s.status !== 'pending');
+            
             if (countEl) countEl.textContent = remainingStudents.length;
+            if (doneCountEl) doneCountEl.textContent = finishedStudents.length;
 
+            // A. 產生「未簽到人員」
             if (remainingStudents.length === 0) {
-                if (students.length > 0) {
-                    listEl.innerHTML = `
-                        <div class="text-center py-8 bg-slate-950/20 border border-dashed border-slate-800 rounded-2xl">
-                            <p class="text-emerald-400 font-bold text-base">🎉 本日全體同仁簽到完畢！</p>
-                            <p class="text-slate-500 text-xs mt-1">請點擊下方按鈕將報表送出歸檔。</p>
+                listEl.innerHTML = `<p class="text-slate-500 text-center py-4 text-xs border border-dashed border-slate-800 rounded-xl">👍 目前沒有待簽到人員</p>`;
+            } else {
+                students.forEach((student, index) => {
+                    if (student.status !== 'pending') return;
+
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition duration-200";
+                    div.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-slate-200">${student.name}</span>
+                            <span class="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">待簽</span>
+                        </div>
+                        <div class="flex gap-1.5">
+                            <button onclick="setStatus(${index}, 'present')" class="bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 border border-emerald-500/30 text-xs font-bold px-3 py-1.5 rounded-lg transition duration-200">上班</button>
+                            <button onclick="setStatus(${index}, 'absent')" class="bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-slate-950 border border-rose-500/30 text-xs font-bold px-3 py-1.5 rounded-lg transition duration-200">請假</button>
+                            <button onclick="deleteStudent(${index})" class="text-slate-600 hover:text-rose-400 text-sm px-2 transition">✕</button>
                         </div>
                     `;
-                } else {
-                    listEl.innerHTML = `<p class="text-slate-500 text-center py-6 text-sm border border-dashed border-slate-800 rounded-2xl">名單目前為空，請在上方新增同仁姓名。</p>`;
-                }
-                updateStats();
-                return;
+                    listEl.appendChild(div);
+                });
             }
 
-            students.forEach((student, index) => {
-                if (student.status !== 'pending') return;
+            // B. 產生「已簽到人員」
+            if (finishedStudents.length === 0) {
+                doneEl.innerHTML = `<p class="text-slate-600 text-center py-4 text-xs border border-dashed border-slate-800/40 rounded-xl">尚未有簽到紀錄</p>`;
+            } else {
+                students.forEach((student, index) => {
+                    if (student.status === 'pending') return;
 
-                const div = document.createElement('div');
-                div.className = "flex justify-between items-center bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition duration-200";
-                
-                div.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <span class="font-semibold text-slate-200">${student.name}</span>
-                        <span class="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">待簽</span>
-                    </div>
-                    <div class="flex gap-1.5">
-                        <button onclick="setStatus(${index}, 'present')" class="bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 border border-emerald-500/30 text-xs font-bold px-3 py-1.5 rounded-lg transition duration-200">上班</button>
-                        <button onclick="setStatus(${index}, 'absent')" class="bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-slate-950 border border-rose-500/30 text-xs font-bold px-3 py-1.5 rounded-lg transition duration-200">請假</button>
-                        <button onclick="deleteStudent(${index})" class="text-slate-600 hover:text-rose-400 text-sm px-2 transition">✕</button>
-                    </div>
-                `;
-                listEl.appendChild(div);
-            });
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/40 opacity-80 hover:opacity-100 transition";
+                    
+                    let statusBadge = '';
+                    if (student.status === 'present') {
+                        statusBadge = '<span class="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-500/20">已到工</span>';
+                    } else if (student.status === 'absent') {
+                        statusBadge = '<span class="text-[10px] font-bold text-rose-400 bg-rose-400/10 px-2 py-0.5 rounded border border-rose-500/20">已請假</span>';
+                    }
+
+                    div.innerHTML = `
+                        <span class="font-medium text-slate-400">${student.name}</span>
+                        <div class="flex items-center gap-2">
+                            ${statusBadge}
+                            <button onclick="setStatus(${index}, 'pending')" class="text-[10px] text-slate-500 hover:text-indigo-400 underline px-1 transition">撤回</button>
+                        </div>
+                    `;
+                    doneEl.appendChild(div);
+                });
+            }
+
             updateStats();
             localStorage.setItem('corp_staff_v1', JSON.stringify(students));
         }
@@ -352,27 +379,7 @@
             detailBlock.scrollIntoView({ behavior: 'smooth' });
         }
 
-        // 11. 隨機抽籤
-        function drawLuckyStudent() {
-            const winnerEl = document.getElementById('luckyWinner');
-            const arrivedStudents = students.filter(s => s.status === 'present');
-            if (!winnerEl) return;
-            
-            if (arrivedStudents.length === 0) {
-                winnerEl.textContent = "❌ 無任何已出勤同仁可供抽取";
-                winnerEl.className = "text-xs font-medium text-rose-400 my-2 h-8";
-                return;
-            }
-            winnerEl.className = "text-2xl font-black text-amber-400 my-2 h-8 animate-bounce";
-            winnerEl.textContent = "🎲 抽籤中...";
-            setTimeout(() => {
-                const randomIndex = Math.floor(Math.random() * arrivedStudents.length);
-                winnerEl.textContent = `🎉 ${arrivedStudents[randomIndex].name} 🎉`;
-                winnerEl.className = "text-2xl font-black text-amber-300 my-2 h-8 drop-shadow-[0_2px_8px_rgba(251,191,36,0.5)]";
-            }, 600);
-        }
-
-        // 12. 切換頁籤
+        // 11. 切換頁籤
         function switchTab(type) {
             const pSingle = document.getElementById('panel-single');
             const pBatch = document.getElementById('panel-batch');
@@ -391,7 +398,7 @@
             }
         }
 
-        // 13. 控制按鈕
+        // 12. 控制按鈕
         function deleteStudent(index) { students.splice(index, 1); renderStudents(); }
         function resetRollCall() { if(confirm("確定要重置今日所有出勤狀態？")) { students.forEach(s => s.status = 'pending'); renderStudents(); } }
         function clearAll() { if(confirm("確定要清空整份員工名單？")) { students = []; renderStudents(); } }
