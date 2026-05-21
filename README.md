@@ -106,3 +106,283 @@
         // 取得今天的日期並顯示
         const now = new Date();
         const todayStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
+        if(document.getElementById('todayLabel')) {
+            document.getElementById('todayLabel').textContent = `📅 今日：${todayStr}`;
+        }
+
+        // 2. 核心功能：點名後直接隱藏
+        function renderStudents() {
+            const listEl = document.getElementById('studentList');
+            const countEl = document.getElementById('studentCount');
+            if (!listEl) return;
+            
+            listEl.innerHTML = '';
+            
+            const remainingStudents = students.filter(s => s.status === 'pending');
+            if (countEl) countEl.textContent = remainingStudents.length;
+
+            if (remainingStudents.length === 0) {
+                if (students.length > 0) {
+                    listEl.innerHTML = `
+                        <div class="text-center py-8">
+                            <p class="text-emerald-600 font-bold text-lg">🎉 全班點名完成！</p>
+                            <p class="text-slate-400 text-xs mt-1">請點擊下方「確認送出今日點名」按鈕存檔。</p>
+                        </div>
+                    `;
+                } else {
+                    listEl.innerHTML = `<p class="text-slate-400 text-center py-6 text-sm">名單是空的，快去上方新增學生吧！</p>`;
+                }
+                updateStats();
+                return;
+            }
+
+            students.forEach((student, index) => {
+                if (student.status !== 'pending') return;
+
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-slate-200 transition";
+                
+                div.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold text-slate-700">${student.name}</span>
+                        <span class="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-md">未點</span>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="setStatus(${index}, 'present')" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-lg transition shadow-2xs">到</button>
+                        <button onclick="setStatus(${index}, 'absent')" class="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold px-3 py-1 rounded-lg transition shadow-2xs">缺</button>
+                        <button onclick="deleteStudent(${index})" class="text-slate-300 hover:text-rose-500 text-sm px-2 transition">✕</button>
+                    </div>
+                `;
+                listEl.appendChild(div);
+            });
+            updateStats();
+            localStorage.setItem('students_v2', JSON.stringify(students));
+        }
+
+        // 3. 設定狀態（到/缺）
+        function setStatus(index, status) {
+            students[index].status = status;
+            renderStudents(); 
+        }
+
+        // 4. 【全新功能】手動按一格按鈕送出點名紀錄
+        function submitRollCall() {
+            if (students.length === 0) {
+                alert("目前名單內沒有學生，無法送出紀錄！");
+                return;
+            }
+
+            const presentCount = students.filter(s => s.status === 'present').length;
+            const absentCount = students.filter(s => s.status === 'absent').length;
+            const pendingCount = students.filter(s => s.status === 'pending').length;
+
+            // 如果有人還沒點名，跳出警告
+            if (pendingCount > 0) {
+                if (!confirm(`還有 ${pendingCount} 位學生尚未點名，確定要直接送出紀錄嗎？（未點名的學生將不會計入到/缺中）`)) {
+                    return;
+                }
+            }
+
+            // 撈取點擊當下的精準時間
+            const clickTime = new Date();
+            const timeStr = `${String(clickTime.getHours()).padStart(2, '0')}:${String(clickTime.getMinutes()).padStart(2, '0')}`;
+            
+            // 複製一份目前所有學生的姓名與狀態
+            const detailList = students.map(s => ({ name: s.name, status: s.status }));
+
+            // 建立歷史物件
+            const newRecord = {
+                date: todayStr,
+                time: timeStr,
+                present: presentCount,
+                absent: absentCount,
+                details: detailList
+            };
+
+            // 塞進歷史紀錄並儲存
+            historyRecords.push(newRecord);
+            localStorage.setItem('rollcall_history_v3', JSON.stringify(historyRecords));
+
+            alert(`🎉 點名紀錄送出成功！已同步儲存至下方歷史紀錄中。`);
+
+            // 重新渲染歷史清單
+            renderHistory();
+        }
+
+        // 5. 單筆新增
+        function addStudent() {
+            const input = document.getElementById('studentInput');
+            const name = input.value.trim();
+            if (!name) return;
+            students.push({ name, status: 'pending' });
+            input.value = '';
+            renderStudents();
+        }
+
+        // 6. 批量匯入
+        function addBatchStudents() {
+            const input = document.getElementById('batchInput');
+            if (!input || !input.value.trim()) return;
+            const names = input.value.split(/[\n,，]+/).map(n => n.trim()).filter(n => n.length > 0);
+            names.forEach(name => students.push({ name, status: 'pending' }));
+            input.value = '';
+            switchTab('single');
+            renderStudents();
+        }
+
+        // 7. 更新統計數字
+        function updateStats() {
+            const presentCount = students.filter(s => s.status === 'present').length;
+            const absentCount = students.filter(s => s.status === 'absent').length;
+            if(document.getElementById('presentStat')) document.getElementById('presentStat').textContent = presentCount;
+            if(document.getElementById('absentStat')) document.getElementById('absentStat').textContent = absentCount;
+        }
+
+        // 8. 跨天檢查（防呆保留：若忘記按送出，隔天還是會幫忙墊底自動存一份）
+        function checkNewDay() {
+            if (lastRollCallDate && lastRollCallDate !== todayStr) {
+                const presentCount = students.filter(s => s.status === 'present').length;
+                const absentCount = students.filter(s => s.status === 'absent').length;
+
+                if (presentCount > 0 || absentCount > 0) {
+                    const detailList = students.map(s => ({ name: s.name, status: s.status }));
+                    const autoRecord = {
+                        date: lastRollCallDate,
+                        time: "隔日自動歸檔",
+                        present: presentCount,
+                        absent: absentCount,
+                        details: detailList
+                    };
+                    historyRecords.push(autoRecord);
+                    localStorage.setItem('rollcall_history_v3', JSON.stringify(historyRecords));
+                }
+                students.forEach(s => s.status = 'pending');
+                localStorage.setItem('students_v2', JSON.stringify(students));
+            }
+            localStorage.setItem('last_rollcall_date', todayStr);
+        }
+
+        // 9. 渲染歷史紀錄清單
+        function renderHistory() {
+            const historyEl = document.getElementById('historyList');
+            if (!historyEl) return;
+            historyEl.innerHTML = '';
+
+            if (historyRecords.length === 0) {
+                historyEl.innerHTML = `<p class="text-slate-400 text-center py-4 text-xs">目前還沒有任何歷史點名紀錄。</p>`;
+                return;
+            }
+
+            [...historyRecords].reverse().forEach((record, index) => {
+                const trueIndex = historyRecords.length - 1 - index; 
+
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center bg-slate-50 hover:bg-slate-100 p-2.5 rounded-lg text-xs border border-slate-200 cursor-pointer transition";
+                div.setAttribute('onclick', `showHistoryDetail(${trueIndex})`);
+                
+                div.innerHTML = `
+                    <div>
+                        <span class="font-bold text-blue-600 hover:underline">📅 ${record.date}</span>
+                        <span class="text-slate-400 ml-1">(${record.time})</span>
+                    </div>
+                    <div class="flex gap-2 bg-white px-2 py-1 rounded border border-slate-100">
+                        <span class="text-emerald-600 font-medium">到：${record.present}</span>
+                        <span class="text-rose-500 font-medium">缺：${record.absent}</span>
+                    </div>
+                `;
+                historyEl.appendChild(div);
+            });
+        }
+
+        // 10. 顯示某天的「一行一行姓名與狀態」
+        function showHistoryDetail(index) {
+            const record = historyRecords[index];
+            const detailBlock = document.getElementById('historyDetailBlock');
+            const detailRows = document.getElementById('historyDetailRows');
+            const dateTitle = document.getElementById('detailDateTitle');
+
+            if (!record) return;
+
+            dateTitle.textContent = `${record.date} (${record.time})`;
+            detailRows.innerHTML = '';
+
+            if (!record.details || record.details.length === 0) {
+                detailRows.innerHTML = `<p class="p-4 text-xs text-slate-400 text-center">此筆紀錄無細節名字資料。</p>`;
+                detailBlock.classList.remove('hidden');
+                return;
+            }
+
+            record.details.forEach(student => {
+                const row = document.createElement('div');
+                row.className = "flex justify-between items-center px-4 py-2.5 hover:bg-slate-50 transition";
+                
+                let statusBadge = '';
+                if (student.status === 'present') {
+                    statusBadge = '<span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">已到</span>';
+                } else if (student.status === 'absent') {
+                    statusBadge = '<span class="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">缺席</span>';
+                } else {
+                    statusBadge = '<span class="text-xs font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded">未點名</span>';
+                }
+
+                row.innerHTML = `
+                    <span class="font-medium text-slate-700">${student.name}</span>
+                    <div class="flex items-center gap-4">
+                        <span class="text-xs text-slate-400">${record.date}</span>
+                        ${statusBadge}
+                    </div>
+                `;
+                detailRows.appendChild(row);
+            });
+
+            detailBlock.classList.remove('hidden');
+            detailBlock.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // 11. 隨機抽籤
+        function drawLuckyStudent() {
+            const winnerEl = document.getElementById('luckyWinner');
+            const arrivedStudents = students.filter(s => s.status === 'present');
+            if (!winnerEl) return;
+            
+            if (arrivedStudents.length === 0) {
+                winnerEl.textContent = "❌ 沒有已到的學生可抽";
+                winnerEl.className = "text-sm font-medium text-rose-500 my-2 h-8";
+                return;
+            }
+            winnerEl.className = "text-2xl font-black text-amber-600 my-2 h-8 animate-bounce";
+            winnerEl.textContent = "🎲 抽籤中...";
+            setTimeout(() => {
+                const randomIndex = Math.floor(Math.random() * arrivedStudents.length);
+                winnerEl.textContent = `🎉 ${arrivedStudents[randomIndex].name} 🎉`;
+                winnerEl.className = "text-2xl font-black text-amber-500 my-2 h-8";
+            }, 600);
+        }
+
+        // 12. 切換頁籤
+        function switchTab(type) {
+            const pSingle = document.getElementById('panel-single');
+            const pBatch = document.getElementById('panel-batch');
+            if (type === 'single') {
+                if(pSingle) pSingle.classList.remove('hidden'); 
+                if(pBatch) pBatch.classList.add('hidden');
+            } else {
+                if(pSingle) pSingle.classList.add('hidden'); 
+                if(pBatch) pBatch.github.classList.remove('hidden'); // 防呆
+                if(pBatch) pBatch.classList.remove('hidden');
+            }
+        }
+
+        // 13. 控制按鈕
+        function deleteStudent(index) { students.splice(index, 1); renderStudents(); }
+        function resetRollCall() { if(confirm("確定要重置今天的點名狀態嗎？")) { students.forEach(s => s.status = 'pending'); renderStudents(); } }
+        function clearAll() { if(confirm("確定要清空整份學生名單嗎？")) { students = []; renderStudents(); } }
+        function clearHistory() { if(confirm("確定要刪除所有歷史點名紀錄嗎？")) { historyRecords = []; localStorage.setItem('rollcall_history_v3', JSON.stringify(historyRecords)); renderHistory(); document.getElementById('historyDetailBlock').classList.add('hidden'); } }
+
+        // 🚀 初始化
+        checkNewDay();
+        renderStudents();
+        renderHistory();
+    </script>
+</body>
+</html>
